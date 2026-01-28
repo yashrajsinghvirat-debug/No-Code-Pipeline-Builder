@@ -1,16 +1,34 @@
  
-from fastapi import FastAPI, Form
+import os
+import logging
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
 from collections import defaultdict
 
-app = FastAPI()
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Get port from environment or use default
+port = int(os.environ.get("PORT", 8000))
+
+app = FastAPI(
+    title="Vector Pipeline API",
+    description="API for parsing and analyzing vector pipelines",
+    version="1.0.0"
+)
 
 # Add CORS middleware
+# Allow frontend origin from environment or default to localhost
+frontend_origin = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[frontend_origin, "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,23 +84,39 @@ def is_dag(nodes: List[Node], edges: List[Edge]) -> bool:
 
 @app.get('/')
 def read_root():
-    return {'Ping': 'Pong'}
+    """Health check endpoint"""
+    logger.info("Health check endpoint accessed")
+    return {'status': 'healthy', 'service': 'vector-pipeline-api'}
 
 @app.post('/pipelines/parse')
 def parse_pipeline(pipeline: Pipeline):
     """Parse pipeline and return analysis including DAG detection."""
     
-    print(f"Received pipeline with {len(pipeline.nodes)} nodes and {len(pipeline.edges)} edges")
-    
-    num_nodes = len(pipeline.nodes)
-    num_edges = len(pipeline.edges)
-    is_dag_result = is_dag(pipeline.nodes, pipeline.edges)
-    
-    result = {
-        'num_nodes': num_nodes,
-        'num_edges': num_edges,
-        'is_dag': is_dag_result
-    }
-    
-    print(f"Returning result: {result}")
-    return result
+    try:
+        logger.info(f"Received pipeline with {len(pipeline.nodes)} nodes and {len(pipeline.edges)} edges")
+        
+        # Validate input
+        if not pipeline.nodes:
+            raise HTTPException(status_code=400, detail="Pipeline must contain at least one node")
+        
+        num_nodes = len(pipeline.nodes)
+        num_edges = len(pipeline.edges)
+        is_dag_result = is_dag(pipeline.nodes, pipeline.edges)
+        
+        result = {
+            'num_nodes': num_nodes,
+            'num_edges': num_edges,
+            'is_dag': is_dag_result
+        }
+        
+        logger.info(f"Pipeline analysis completed: {result}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing pipeline: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
